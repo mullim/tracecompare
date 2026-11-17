@@ -190,3 +190,4 @@ tr th:first-child { padding-left: 16px; }
   .chart-canvas { height: 230px; }
   .footer { flex-wrap: wrap; }
 }
+.modal .dialog-error { color: #922e27; background: #fff1ee; border-radius: 6px; padding: 8px; }

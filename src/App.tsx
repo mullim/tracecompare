@@ -141,7 +141,9 @@ export default function App() {
     importing.current = true
     await task(async () => {
       const incoming = Array.from(input)
-      if (incoming.length === 1 && /\.zip$/i.test(incoming[0].name)) {
+      const signature = incoming.length === 1 ? new Uint8Array(await incoming[0].slice(0, 4).arrayBuffer()) : null
+      const isArchive = signature?.[0] === 0x50 && signature[1] === 0x4b && signature[2] === 0x03 && signature[3] === 0x04
+      if (incoming.length === 1 && (isArchive || /\.zip$/i.test(incoming[0].name))) {
         switchWorkspace(await unpack(new Uint8Array(await incoming[0].arrayBuffer())))
         inform('Project opened.')
         return
@@ -439,12 +441,14 @@ export default function App() {
       <footer className="footer"><span>TraceCompare</span><span>Workout analysis runs in your browser.</span></footer>
     </main>
     {modal === 'account' && <ModalPanel title={user ? 'Your account' : 'Sign in to TraceCompare'} close={() => setModal(null)}>
+      {notice?.type === 'error' && <p className="dialog-error" role="alert">{notice.message}</p>}
       {user ? <><p>{user.email}</p><button className="button" type="button" onClick={() => void task(async () => { await signOut(); setModal(null); inform('Signed out.') })}>Sign out</button></>
         : cloud ? <><p>Save comparisons privately and create public links.</p><button className="button primary" disabled={busy} type="button" onClick={() => void task(signIn)}>Continue with Google <ArrowRight size={17} /></button></>
           : <p>Cloud accounts are unavailable on this deployment. You can still compare workouts and export a ZIP to reopen later.</p>}
     </ModalPanel>}
     {modal === 'share' && <ModalPanel title="Share this comparison" close={() => setModal(null)}>
       <p>Anyone with the link can view the published charts. The original workout files stay private.</p>
+      {notice?.type === 'error' && <p className="dialog-error" role="alert">{notice.message}</p>}
       <label className="checkbox"><input type="checkbox" checked={gpsInShare} onChange={e => setGpsInShare(e.target.checked)} /> Include GPS tracks</label>
       {link ? <div className="copy-row"><input aria-label="Public comparison URL" readOnly value={link} onFocus={e => e.target.select()} /><button className="button primary" type="button" onClick={() => void task(async () => { await navigator.clipboard.writeText(link); inform('Public link copied.') })}>Copy</button></div>
         : <button className="button primary" type="button" disabled={busy} onClick={() => void makeLink()}><Link2 size={16} /> Publish link</button>}

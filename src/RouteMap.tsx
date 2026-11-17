@@ -15,12 +15,12 @@ type Pins = FeatureCollection<Point, { color: string }>
 const styleUrl = import.meta.env.VITE_MAP_STYLE || 'https://tiles.openfreemap.org/styles/positron'
 
 export function RouteMap({ recordings, cursor }: { recordings: Recording[]; cursor: number | null }) {
-  const root = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(false)
   const [fallback, setFallback] = useState(false)
+  const [zoom, setZoom] = useState(1)
   const data = useMemo<Routes>(() => {
     const features: Routes['features'] = []
     for (const recording of recordings) {
@@ -101,8 +101,7 @@ export function RouteMap({ recordings, cursor }: { recordings: Recording[]; curs
     map.current.getSource<GeoJSONSource>('workout-tracks')?.setData(data)
     fit(map.current, bounds)
   }, [ready, data, bounds])
-  useEffect(() => {
-    if (!ready) return
+  const pins = useMemo<Pins>(() => {
     const features: Array<Feature<Point, { color: string }>> = []
     if (cursor !== null) {
       for (const recording of recordings) {
@@ -113,22 +112,25 @@ export function RouteMap({ recordings, cursor }: { recordings: Recording[]; curs
         })
       }
     }
-    map.current?.getSource<GeoJSONSource>('workout-cursor')?.setData({ type: 'FeatureCollection', features } satisfies Pins)
-  }, [cursor, ready, recordings])
-  return <div className="map-shell" ref={root}>
+    return { type: 'FeatureCollection', features }
+  }, [cursor, recordings])
+  useEffect(() => {
+    if (ready) map.current?.getSource<GeoJSONSource>('workout-cursor')?.setData(pins)
+  }, [ready, pins])
+  return <div className="map-shell">
     <div ref={canvas} className="map-canvas" aria-label="GPS tracks map" />
-    {error && <RouteSvg data={data} />}
+    {error && <RouteSvg data={data} pins={pins} zoom={zoom} />}
     {!ready && !error && <div className="map-message">Loading map…</div>}
     {(ready && fallback || error) && <div className="map-note">Route only</div>}
-    {ready && <div className="map-buttons">
-      <button type="button" aria-label="Map zoom in" onClick={() => map.current?.zoomIn()}><Plus size={16} /></button>
-      <button type="button" aria-label="Map zoom out" onClick={() => map.current?.zoomOut()}><Minus size={16} /></button>
-      <button type="button" aria-label="Fit GPS tracks" onClick={() => map.current && fit(map.current)}><Expand size={15} /></button>
+    {(ready || error) && <div className="map-buttons">
+      <button type="button" aria-label="Map zoom in" onClick={() => error ? setZoom(z => Math.min(8, z * 1.3)) : map.current?.zoomIn()}><Plus size={16} /></button>
+      <button type="button" aria-label="Map zoom out" onClick={() => error ? setZoom(z => Math.max(0.5, z / 1.3)) : map.current?.zoomOut()}><Minus size={16} /></button>
+      <button type="button" aria-label="Fit GPS tracks" onClick={() => error ? setZoom(1) : map.current && fit(map.current)}><Expand size={15} /></button>
     </div>}
   </div>
 }
 
-function RouteSvg({ data }: { data: Routes }) {
+function RouteSvg({ data, pins, zoom }: { data: Routes; pins: Pins; zoom: number }) {
   const coordinates = data.features.flatMap(f => f.geometry.coordinates)
   if (!coordinates.length) return null
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -138,8 +140,12 @@ function RouteSvg({ data }: { data: Routes }) {
   }
   const lonScale = Math.max(0.02, Math.cos((minY + maxY) * Math.PI / 360))
   const scale = Math.min(550 / Math.max(0.000001, (maxX - minX) * lonScale), 260 / Math.max(0.000001, maxY - minY))
-  const project = ([x, y]: number[]) => [300 + (x - (minX + maxX) / 2) * lonScale * scale, 155 - (y - (minY + maxY) / 2) * scale].join(',')
-  return <svg className="map-fallback" viewBox="0 0 600 310" aria-label="GPS track outline">
-    {data.features.map((f, i) => <polyline key={i} points={f.geometry.coordinates.map(project).join(' ')} fill="none" stroke={f.properties.color} strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />)}
+  const project = ([x, y]: number[]) => [300 + (x - (minX + maxX) / 2) * lonScale * scale * zoom, 155 - (y - (minY + maxY) / 2) * scale * zoom]
+  return <svg className="map-fallback" viewBox="0 0 600 310" role="img" aria-label="GPS track outline">
+    {data.features.map((f, i) => <polyline key={i} points={f.geometry.coordinates.map(point => project(point).join(',')).join(' ')} fill="none" stroke={f.properties.color} strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />)}
+    {pins.features.map((pin, index) => {
+      const [x, y] = project(pin.geometry.coordinates)
+      return <circle key={index} cx={x} cy={y} r={5} fill={pin.properties.color} stroke="#fff" strokeWidth={2} />
+    })}
   </svg>
 }
